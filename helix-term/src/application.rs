@@ -166,7 +166,7 @@ impl Application {
             if first.is_dir() {
                 helix_loader::set_current_working_dir(first.clone())?;
                 editor.new_file(Action::VerticalSplit);
-                let picker = ui::file_picker(".".into(), &config.load().editor);
+                let picker = ui::file_picker(".".into(), editor.config().file_picker);
                 compositor.push(Box::new(overlaid(picker)));
             } else {
                 let nr_of_files = args.files.len();
