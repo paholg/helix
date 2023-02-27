@@ -453,6 +453,8 @@ See the documentation page on [pickers](./pickers.md) for more info.
 | `Ctrl-v`                     | Open vertically                                            |
 | `Ctrl-t`                     | Toggle preview                                             |
 | `Escape`, `Ctrl-c`           | Close picker                                               |
+| `Ctrl-e`                     | Change picker root to one directory in, based on selection |
+| `Ctrl-a`                     | Change picker root to one directory out                    |
 
 ## Prompt
 
