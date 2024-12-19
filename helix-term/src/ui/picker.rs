@@ -1150,6 +1150,16 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
             ctrl!('t') => {
                 self.toggle_preview();
             }
+            ctrl!('i') => {
+                if open_child(self, ctx) {
+                    return close_fn(self);
+                }
+            }
+            ctrl!('o') => {
+                if open_parent(self, ctx) {
+                    return close_fn(self);
+                }
+            }
             _ => {
                 self.prompt_handle_event(event, ctx);
             }
@@ -1194,3 +1204,60 @@ impl<T: 'static + Send + Sync, D> Drop for Picker<T, D> {
 }
 
 type PickerCallback<T> = Box<dyn Fn(&mut Context, &T, Action)>;
+
+fn reopen_file_picker(root: std::path::PathBuf, cx: &mut Context) {
+    let callback = Box::pin(async move {
+        let call = crate::job::Callback::EditorCompositor(Box::new(move |editor, compositor| {
+            let picker = super::file_picker(editor, root);
+            compositor.push(Box::new(ui::overlay::overlaid(picker)));
+        }));
+        Ok(call)
+    });
+    cx.jobs.callback(callback);
+}
+
+fn open_parent<I, D>(picker: &mut Picker<I, D>, cx: &mut Context) -> bool
+where
+    I: 'static + Send + Sync,
+    D: 'static + Send + Sync,
+{
+    use std::any::Any;
+    let data: &dyn Any = &*picker.editor_data;
+
+    if let Some(file_data) = data.downcast_ref::<crate::ui::FilePickerData>() {
+        if let Some(parent) = file_data.root.parent() {
+            reopen_file_picker(parent.to_path_buf(), cx);
+            return true;
+        }
+    }
+    false
+}
+
+fn open_child<I, D>(picker: &mut Picker<I, D>, cx: &mut Context) -> bool
+where
+    I: 'static + Send + Sync,
+    D: 'static + Send + Sync,
+{
+    use std::any::Any;
+    let data: &dyn Any = &*picker.editor_data;
+
+    if let Some(file_data) = data.downcast_ref::<crate::ui::FilePickerData>() {
+        let selection: Option<&dyn Any> = picker.selection().map(|s| s as &dyn Any);
+        if let Some(path) = selection.and_then(|s| s.downcast_ref::<std::path::PathBuf>()) {
+            let component = path
+                .strip_prefix(&file_data.root)
+                .ok()
+                .map(Path::components)
+                .and_then(|mut iter| iter.next());
+            if let Some(comp) = component {
+                let mut child = file_data.root.clone();
+                child.push(comp);
+                if child.is_dir() {
+                    reopen_file_picker(child, cx);
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
