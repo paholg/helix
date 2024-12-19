@@ -17,6 +17,11 @@ use helix_view::expansion;
 use serde_json::Value;
 use ui::completers::{self, Completer};
 
+impl ui::picker::PickerNavigation
+    for Picker<(helix_lsp::LanguageServerId, helix_lsp::lsp::Command), ()>
+{
+}
+
 #[derive(Clone)]
 pub struct TypableCommand {
     pub name: &'static str,
