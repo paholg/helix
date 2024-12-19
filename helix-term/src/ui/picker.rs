@@ -270,6 +270,8 @@ pub struct Picker<T: 'static + Send + Sync, D: 'static> {
     /// An event handler for syntax highlighting the currently previewed file.
     preview_highlight_handler: Sender<Arc<Path>>,
     dynamic_query_handler: Option<Sender<DynamicQueryChange>>,
+    open_child: Option<fn(&mut Picker<T, D>, &mut Context) -> bool>,
+    open_parent: Option<fn(&mut Picker<T, D>, &mut Context) -> bool>,
 }
 
 impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
@@ -396,7 +398,19 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             file_fn: None,
             preview_highlight_handler: PreviewHighlightHandler::<T, D>::default().spawn(),
             dynamic_query_handler: None,
+            open_child: None,
+            open_parent: None,
         }
+    }
+
+    pub fn with_navigation(
+        mut self,
+        open_child: fn(&mut Picker<T, D>, &mut Context) -> bool,
+        open_parent: fn(&mut Picker<T, D>, &mut Context) -> bool,
+    ) -> Self {
+        self.open_child = Some(open_child);
+        self.open_parent = Some(open_parent);
+        self
     }
 
     pub fn injector(&self) -> Injector<T, D> {
@@ -1168,6 +1182,20 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
             ctrl!('t') => {
                 self.toggle_preview();
             }
+            ctrl!('i') => {
+                if let Some(open_child) = self.open_child {
+                    if open_child(self, ctx) {
+                        return close_fn(self);
+                    }
+                }
+            }
+            ctrl!('o') => {
+                if let Some(open_parent) = self.open_parent {
+                    if open_parent(self, ctx) {
+                        return close_fn(self);
+                    }
+                }
+            }
             _ => {
                 self.prompt_handle_event(event, ctx);
             }
@@ -1212,3 +1240,44 @@ impl<T: 'static + Send + Sync, D> Drop for Picker<T, D> {
 }
 
 type PickerCallback<T> = Box<dyn Fn(&mut Context, &T, Action)>;
+
+fn reopen_file_picker(root: std::path::PathBuf, cx: &mut Context) {
+    let callback = Box::pin(async move {
+        let call = crate::job::Callback::EditorCompositor(Box::new(move |editor, compositor| {
+            let picker = super::file_picker(&editor, root);
+            compositor.push(Box::new(ui::overlay::overlaid(picker)));
+        }));
+        Ok(call)
+    });
+    cx.jobs.callback(callback);
+}
+
+impl Picker<std::path::PathBuf, crate::ui::FilePickerData> {
+    pub fn open_parent(&mut self, cx: &mut Context) -> bool {
+        if let Some(parent) = self.editor_data.root.parent() {
+            reopen_file_picker(parent.to_path_buf(), cx);
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn open_child(&mut self, cx: &mut Context) -> bool {
+        if let Some(selection) = self.selection() {
+            let component = selection
+                .strip_prefix(&self.editor_data.root)
+                .ok()
+                .map(Path::components)
+                .and_then(|mut iter| iter.next());
+            if let Some(comp) = component {
+                let mut child = self.editor_data.root.clone();
+                child.push(comp);
+                if child.is_dir() {
+                    reopen_file_picker(child, cx);
+                    return true;
+                }
+            }
+        }
+        false
+    }
+}

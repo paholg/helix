@@ -288,6 +288,7 @@ pub fn file_picker(editor: &Editor, root: PathBuf) -> FilePicker {
         }
     })
     .always_show_headers()
+    .with_navigation(FilePicker::open_child, FilePicker::open_parent)
     .with_preview(|_editor, path| Some((path.as_path().into(), None)));
     let injector = picker.injector();
     let timeout = std::time::Instant::now() + std::time::Duration::from_millis(30);
