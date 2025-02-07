@@ -10,6 +10,7 @@ use tui::text::Span;
 
 use crate::{alt, compositor::Context, job::Callback};
 
+use super::get_relative_dir;
 use super::prompt::Movement;
 use super::{
     directory_content, overlay, picker::PickerKeyHandler, Picker, PickerColumn, Prompt, PromptEvent,
@@ -369,7 +370,7 @@ pub fn file_explorer(
     });
 
     let columns = [PickerColumn::new(
-        "path",
+        get_relative_dir(&root),
         |(path, is_dir): &ExplorerItem, (root, directory_style): &ExplorerData| {
             let name = path.strip_prefix(root).unwrap_or(path).to_string_lossy();
             if *is_dir {
@@ -410,6 +411,7 @@ pub fn file_explorer(
     )
     .with_cursor(cursor.unwrap_or_default())
     .with_preview(|_editor, (path, _is_dir)| Some((path.as_path().into(), None)))
+    .always_show_headers()
     .with_key_handlers(hashmap! {
         alt!('n') => create,
         alt!('m') => move_,
