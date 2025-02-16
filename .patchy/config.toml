@@ -1,0 +1,8 @@
+repo = "helix-editor/helix"
+remote-branch = "master"
+local-branch = "driver"
+pull-requests = [
+  "12806", # path in file picker
+  "6118", # sticky context
+]
+patches = ["file-picker-navigation"]

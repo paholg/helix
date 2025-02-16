@@ -1,0 +1,226 @@
+From 9a1f6d2d2cd0a194a1b27e4c8fecae664f487646 Mon Sep 17 00:00:00 2001
+From: Paho Lurie-Gregg <paho@paholg.com>
+Date: Wed, 18 Dec 2024 16:01:40 -0800
+Subject: [PATCH] Provide file-picker navigation
+
+We provide the following new keybindings while in a file picker:
+* `C-i` - Change picker root to one directory in, based on selection
+* `C-o` - Change picker root to one directory out
+
+These can be especially useful when combined with the command
+`file_picker_in_current_buffer_directory` when navigating library
+files.
+
+That is, with this change the following flow is enabled:
+1. Perform a `goto_defition` on a symbol defined in an external library.
+2. Perform `file_picker_in_current_buffer_directory`, opening a picker
+   in the external library.
+3. Browse the external library with `C-i` and `C-o`, which is not
+   possible without this change.
+
+To accomplish this, we need special behavior for the file picker, which
+we accomplish via the `PickerNavigation` trait. It's a bit cumbersome,
+as we need to implement this trait for every `Picker` type that is
+constructed.
+---
+ helix-term/src/commands.rs       |  9 ++++
+ helix-term/src/commands/dap.rs   |  3 ++
+ helix-term/src/commands/lsp.rs   |  3 ++
+ helix-term/src/commands/typed.rs |  5 +++
+ helix-term/src/ui/picker.rs      | 70 +++++++++++++++++++++++++++++++-
+ 5 files changed, 89 insertions(+), 1 deletion(-)
+
+diff --git a/helix-term/src/commands.rs b/helix-term/src/commands.rs
+index 19a22601..53311fa9 100644
+--- a/helix-term/src/commands.rs
++++ b/helix-term/src/commands.rs
+@@ -86,6 +86,8 @@
+ use grep_searcher::{sinks, BinaryDetection, SearcherBuilder};
+ use ignore::{DirEntry, WalkBuilder, WalkState};
+ 
++impl ui::picker::PickerNavigation for Picker<MappableCommand, HashMap<String, Vec<Vec<KeyEvent>>>> {}
++
+ pub type OnKeyCallback = Box<dyn FnOnce(&mut Context, KeyEvent)>;
+ #[derive(PartialEq, Eq, Clone, Copy, Debug)]
+ pub enum OnKeyCallbackKind {
+@@ -2406,6 +2408,8 @@ struct GlobalSearchConfig {
+         file_picker_config: helix_view::editor::FilePickerConfig,
+     }
+ 
++    impl ui::picker::PickerNavigation for Picker<FileResult, GlobalSearchConfig> {}
++
+     let config = cx.editor.config();
+     let config = GlobalSearchConfig {
+         smart_case: config.search.smart_case,
+@@ -3006,6 +3010,7 @@ fn file_picker_in_current_directory(cx: &mut Context) {
+     cx.push_layer(Box::new(overlaid(picker)));
+ }
+ 
++impl ui::picker::PickerNavigation for Picker<(PathBuf, bool), (PathBuf, Style)> {}
+ fn file_explorer(cx: &mut Context) {
+     let root = find_workspace().0;
+     if !root.exists() {
+@@ -3069,6 +3074,8 @@ struct BufferMeta {
+         focused_at: std::time::Instant,
+     }
+ 
++    impl ui::picker::PickerNavigation for Picker<BufferMeta, ()> {}
++
+     let new_meta = |doc: &Document| BufferMeta {
+         id: doc.id(),
+         path: doc.path().cloned(),
+@@ -3133,6 +3140,7 @@ struct JumpMeta {
+         text: String,
+         is_current: bool,
+     }
++    impl ui::picker::PickerNavigation for Picker<JumpMeta, ()> {}
+ 
+     for (view, _) in cx.editor.tree.views_mut() {
+         for doc_id in view.jumps.iter().map(|e| e.0).collect::<Vec<_>>().iter() {
+@@ -3225,6 +3233,7 @@ pub struct FileChangeData {
+         style_deleted: Style,
+         style_renamed: Style,
+     }
++    impl ui::picker::PickerNavigation for Picker<FileChange, FileChangeData> {}
+ 
+     let cwd = helix_stdx::env::current_working_dir();
+     if !cwd.exists() {
+diff --git a/helix-term/src/commands/dap.rs b/helix-term/src/commands/dap.rs
+index 83dd936c..050f38fb 100644
+--- a/helix-term/src/commands/dap.rs
++++ b/helix-term/src/commands/dap.rs
+@@ -21,6 +21,9 @@
+ use anyhow::{anyhow, bail};
+ 
+ use helix_view::handlers::dap::{breakpoints_changed, jump_to_stack_frame, select_thread_id};
++impl ui::picker::PickerNavigation for Picker<Thread, HashMap<helix_dap::ThreadId, String>> {}
++impl ui::picker::PickerNavigation for Picker<DebugTemplate, ()> {}
++impl ui::picker::PickerNavigation for Picker<StackFrame, ()> {}
+ 
+ fn thread_picker(
+     cx: &mut Context,
+diff --git a/helix-term/src/commands/lsp.rs b/helix-term/src/commands/lsp.rs
+index 130428d4..f4fb3ee6 100644
+--- a/helix-term/src/commands/lsp.rs
++++ b/helix-term/src/commands/lsp.rs
+@@ -206,6 +206,9 @@ enum DiagnosticsFormat {
+ }
+ 
+ type DiagnosticsPicker = Picker<PickerDiagnostic, DiagnosticStyles>;
++impl ui::picker::PickerNavigation for Picker<PickerDiagnostic, DiagnosticStyles> {}
++impl ui::picker::PickerNavigation for Picker<SymbolInformationItem, ()> {}
++impl ui::picker::PickerNavigation for Picker<Location, std::path::PathBuf> {}
+ 
+ fn diag_picker(
+     cx: &Context,
+diff --git a/helix-term/src/commands/typed.rs b/helix-term/src/commands/typed.rs
+index c5c53acd..b89a296a 100644
+--- a/helix-term/src/commands/typed.rs
++++ b/helix-term/src/commands/typed.rs
+@@ -15,6 +15,11 @@
+ use serde_json::Value;
+ use ui::completers::{self, Completer};
+ 
++impl ui::picker::PickerNavigation
++    for Picker<(helix_lsp::LanguageServerId, helix_lsp::lsp::Command), ()>
++{
++}
++
+ #[derive(Clone)]
+ pub struct TypableCommand {
+     pub name: &'static str,
+diff --git a/helix-term/src/ui/picker.rs b/helix-term/src/ui/picker.rs
+index c70067c9..841af457 100644
+--- a/helix-term/src/ui/picker.rs
++++ b/helix-term/src/ui/picker.rs
+@@ -993,7 +993,10 @@ fn render_preview(&mut self, area: Rect, surface: &mut Surface, cx: &mut Context
+     }
+ }
+ 
+-impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I, D> {
++impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I, D>
++where
++    Picker<I, D>: PickerNavigation,
++{
+     fn render(&mut self, area: Rect, surface: &mut Surface, cx: &mut Context) {
+         // +---------+ +---------+
+         // |prompt   | |preview  |
+@@ -1120,6 +1123,16 @@ fn handle_event(&mut self, event: &Event, ctx: &mut Context) -> EventResult {
+             ctrl!('t') => {
+                 self.toggle_preview();
+             }
++            ctrl!('i') => {
++                if self.open_child(ctx) {
++                    return close_fn(self);
++                }
++            }
++            ctrl!('o') => {
++                if self.open_parent(ctx) {
++                    return close_fn(self);
++                }
++            }
+             _ => {
+                 self.prompt_handle_event(event, ctx);
+             }
+@@ -1164,3 +1177,58 @@ fn drop(&mut self) {
+ }
+ 
+ type PickerCallback<T> = Box<dyn Fn(&mut Context, &T, Action)>;
++
++pub trait PickerNavigation {
++    fn open_at_root(&mut self, _root: std::path::PathBuf, _cx: &mut Context) {}
++    fn open_parent(&mut self, _cx: &mut Context) -> bool {
++        false
++    }
++    fn open_child(&mut self, _cx: &mut Context) -> bool {
++        false
++    }
++}
++
++impl PickerNavigation for Picker<std::path::PathBuf, std::path::PathBuf> {
++    fn open_at_root(&mut self, root: std::path::PathBuf, cx: &mut Context) {
++        let callback = Box::pin(async move {
++            let call =
++                crate::job::Callback::EditorCompositor(Box::new(move |editor, compositor| {
++                    let picker = super::file_picker(root, &editor.config());
++                    compositor.push(Box::new(ui::overlay::overlaid(picker)));
++                }));
++            Ok(call)
++        });
++        cx.jobs.callback(callback);
++    }
++
++    fn open_parent(&mut self, cx: &mut Context) -> bool {
++        if let Some(parent) = &self.editor_data.parent() {
++            self.open_at_root(parent.to_path_buf(), cx);
++            true
++        } else {
++            false
++        }
++    }
++
++    fn open_child(&mut self, cx: &mut Context) -> bool {
++        use std::ops::Deref;
++
++        if let Some(selection) = self.selection() {
++            let component = selection
++                .strip_prefix(&*self.editor_data)
++                .ok()
++                .map(Path::components)
++                .and_then(|mut iter| iter.next());
++            if let Some(comp) = component {
++                let mut child = self.editor_data.deref().clone();
++                child.push(comp);
++                if child.is_dir() {
++                    self.prompt.clear(cx.editor);
++                    self.open_at_root(child, cx);
++                    return true;
++                }
++            }
++        }
++        false
++    }
++}
+-- 
+2.47.2
+
