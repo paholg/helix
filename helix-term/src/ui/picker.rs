@@ -1192,6 +1192,29 @@ impl<T: 'static + Send + Sync, D> Drop for Picker<T, D> {
     }
 }
 
+impl Picker<std::path::PathBuf, std::path::PathBuf> {
+    pub fn child_dir(&self) -> Option<std::path::PathBuf> {
+        use std::ops::Deref;
+
+        if let Some(selection) = self.selection() {
+            let component = selection
+                .strip_prefix(&*self.editor_data)
+                .ok()
+                .map(Path::components)
+                .and_then(|mut iter| iter.next());
+            if let Some(comp) = component {
+                let mut child = self.editor_data.deref().clone();
+                child.push(comp);
+                if child.is_dir() {
+                    return Some(child);
+                }
+            }
+        }
+
+        None
+    }
+}
+
 type PickerCallback<T> = Box<dyn Fn(&mut Context, &T, Action)>;
 pub type PickerKeyHandler<T, D> = Box<dyn Fn(&mut Context, &T, Arc<D>, u32) + 'static>;
 pub type PickerKeyHandlers<T, D> = HashMap<KeyEvent, PickerKeyHandler<T, D>>;

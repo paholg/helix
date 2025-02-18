@@ -21,6 +21,7 @@ use crate::job::{self, Callback};
 pub use completion::Completion;
 pub use editor::EditorView;
 pub use file_explorer::file_explorer;
+use helix_core::hashmap;
 use helix_stdx::rope;
 pub use markdown::Markdown;
 pub use menu::Menu;
@@ -252,6 +253,41 @@ pub fn file_picker(root: PathBuf, config: &helix_view::editor::Config) -> FilePi
     });
     log::debug!("file_picker init {:?}", Instant::now().duration_since(now));
 
+    let goto_parent: picker::PickerKeyHandler<PathBuf, PathBuf> =
+        Box::new(|cx, _path, data, _cursor| {
+            if let Some(parent) = data.parent() {
+                let parent = parent.to_owned();
+                let callback = Box::pin(async move {
+                    let call =
+                        crate::job::Callback::EditorCompositor(Box::new(|editor, compositor| {
+                            compositor.pop();
+                            let picker = file_picker(parent.into(), &editor.config());
+                            compositor.push(Box::new(overlay::overlaid(picker)));
+                        }));
+                    Ok(call)
+                });
+                cx.jobs.callback(callback);
+            }
+        });
+    let goto_child: picker::PickerKeyHandler<PathBuf, PathBuf> =
+        Box::new(|cx, _path, _data, _cursor| {
+            let callback = Box::pin(async move {
+                let call =
+                    crate::job::Callback::EditorCompositor(Box::new(move |editor, compositor| {
+                        // TODO: This is hacky. Do better?
+                        if let Some(picker) = compositor.find::<overlay::Overlay<FilePicker>>() {
+                            if let Some(dir) = picker.content.child_dir() {
+                                compositor.pop();
+                                let picker = file_picker(dir, &editor.config());
+                                compositor.push(Box::new(overlay::overlaid(picker)));
+                            }
+                        }
+                    }));
+                Ok(call)
+            });
+            cx.jobs.callback(callback);
+        });
+
     let columns = [PickerColumn::new(
         get_relative_dir(&root),
         |item: &PathBuf, root: &PathBuf| {
@@ -272,7 +308,11 @@ pub fn file_picker(root: PathBuf, config: &helix_view::editor::Config) -> FilePi
         }
     })
     .always_show_headers()
-    .with_preview(|_editor, path| Some((path.as_path().into(), None)));
+    .with_preview(|_editor, path| Some((path.as_path().into(), None)))
+    .with_key_handlers(hashmap!(
+        crate::ctrl!('i') => goto_child,
+        crate::ctrl!('o') => goto_parent,
+    ));
     let injector = picker.injector();
     let timeout = std::time::Instant::now() + std::time::Duration::from_millis(30);
 
